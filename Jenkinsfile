@@ -92,69 +92,7 @@ pipeline {
         stash includes: 'target/*.jar', name: 'app-jar'
       }
     }
-pipeline {
-    agent any
 
-    environment {
-        JAR_NAME = 'myapp.jar'      // your input JAR
-        WAR_NAME = 'myapp.war'      // desired output WAR
-        STAGE_DIR = 'war_staging'   // temp folder for assembling WAR
-    }
-
-    stages {
-        stage('Prepare Workspace') {
-            steps {
-                // Clean up any previous staging
-                sh "rm -rf ${STAGE_DIR} ${WAR_NAME}"
-                // Ensure your JAR is here (e.g. copied from build)
-                // If it lives elsewhere, adjust the cp path below
-                sh "ls -la"
-            }
-        }
-
-        stage('Assemble WAR Structure') {
-            steps {
-                script {
-                    sh """
-                      mkdir -p ${STAGE_DIR}/WEB-INF/lib
-                      mkdir -p ${STAGE_DIR}/WEB-INF/classes
-
-                      # Copy the JAR into WEB-INF/lib
-                      cp ${JAR_NAME} ${STAGE_DIR}/WEB-INF/lib/
-
-                      # (Optional) unpack classes/resources
-                      unzip -q ${JAR_NAME} -d ${STAGE_DIR}/WEB-INF/classes
-                    """
-                }
-            }
-        }
-
-        stage('Create WAR') {
-            steps {
-                script {
-                    sh """
-                      cd ${STAGE_DIR}
-                      jar cf ../${WAR_NAME} .
-                      cd ..
-                    """
-                }
-                echo "Generated WAR: ${WAR_NAME}"
-            }
-        }
-
-        stage('Archive Artifact') {
-            steps {
-                archiveArtifacts artifacts: "${WAR_NAME}", fingerprint: true
-            }
-        }
-    }
-
-    post {
-        always {
-            echo "Done. You can now deploy ${WAR_NAME} to your servlet container."
-        }
-    }
-}
     stage('Deploy to Nexus') {
       steps {
         unstash 'app-jar'
