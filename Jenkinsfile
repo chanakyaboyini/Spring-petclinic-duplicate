@@ -279,4 +279,4 @@ EOF
       echo '❌ Pipeline failed – check the logs above.'
     }
   }
-}
+} // ← this final closing brace was missing in your original file
