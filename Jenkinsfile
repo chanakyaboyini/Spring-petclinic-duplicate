@@ -6,10 +6,10 @@ pipeline {
   }
 
   environment {
-    AWS_REGION         = 'us-east-1'
-    AWS_CREDENTIALS    = 'jenkins-aws-start-stop'
-    NEXUS_INSTANCE_ID  = 'i-07e528bbf536acdcd'
-    NEXUS_PORT         = '8081'
+    AWS_REGION        = 'us-east-1'
+    AWS_CREDENTIALS   = 'jenkins-aws-start-stop'
+    NEXUS_INSTANCE_ID = 'i-07e528bbf536acdcd'
+    NEXUS_PORT        = '8081'
   }
 
   stages {
@@ -135,7 +135,6 @@ aws ec2 describe-instances \
             groupId            : 'org.springframework.samples',
             version            : '3.1.1',
             repository         : 'Spring-Clinic',
-            snapshotRepository : 'Spring-Clinic-snapshots',
             artifacts          : [[
               artifactId : 'spring-clinic',
               classifier : '',
@@ -156,26 +155,30 @@ aws ec2 describe-instances \
           keyFileVariable: 'SSH_KEY'
         )]) {
           script {
+            // strip off the “:8081” so we only have the IP
             env.TOMCAT_HOST = env.NEXUS_HOST.split(':')[0]
           }
-          sh '''
-            chmod 600 $SSH_KEY
 
-            scp -o StrictHostKeyChecking=no -i $SSH_KEY \
-              ${WORKSPACE}/${WAR_NAME} $SSH_USER@$TOMCAT_HOST:/tmp/${WAR_NAME}
+          sh """
+            chmod 600 \$SSH_KEY
 
-            ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$TOMCAT_HOST << 'EOF'
+            # copy the WAR with its real name
+            scp -o StrictHostKeyChecking=no -i \$SSH_KEY \\
+              \${WORKSPACE}/${env.WAR_NAME} \$SSH_USER@\$TOMCAT_HOST:/tmp/${env.WAR_NAME}
+
+            # remote install & deploy
+            ssh -o StrictHostKeyChecking=no -i \$SSH_KEY \$SSH_USER@\$TOMCAT_HOST << 'EOF'
               set -e
 
-              # install Java if missing
+              # 1) Java
               if ! java -version &>/dev/null; then
                 sudo yum install -y java-1.8.0-openjdk-devel wget tar
               fi
 
-              # install Tomcat if not present
+              # 2) Tomcat
               if [ ! -d /opt/tomcat ]; then
                 TOMCAT_VER=9.0.82
-                wget -q https://archive.apache.org/dist/tomcat/tomcat-9/v\$TOMCAT_VER/bin/apache-tomcat-\$TOMCAT_VER.tar.gz \
+                wget -q https://archive.apache.org/dist/tomcat/tomcat-9/v\$TOMCAT_VER/bin/apache-tomcat-\$TOMCAT_VER.tar.gz \\
                   -O /tmp/tomcat.tar.gz
                 sudo mkdir -p /opt
                 sudo tar xzf /tmp/tomcat.tar.gz -C /opt
@@ -184,17 +187,17 @@ aws ec2 describe-instances \
                 sudo chown -R tomcat:tomcat /opt/apache-tomcat-\$TOMCAT_VER
               fi
 
-              # deploy WAR and restart Tomcat
-              sudo cp /tmp/${WAR_NAME} /opt/tomcat/webapps/
-              sudo chown tomcat:tomcat /opt/tomcat/webapps/${WAR_NAME}
+              # 3) Deploy WAR
+              sudo cp /tmp/${env.WAR_NAME} /opt/tomcat/webapps/${env.WAR_NAME}
+              sudo chown tomcat:tomcat /opt/tomcat/webapps/${env.WAR_NAME}
 
+              # 4) Restart Tomcat
               if pgrep -f '/opt/tomcat/bin/catalina.sh'; then
-                sudo /opt/tomcat/bin/shutdown.sh
-                sleep 5
+                sudo /opt/tomcat/bin/shutdown.sh && sleep 5
               fi
               sudo /opt/tomcat/bin/startup.sh
 EOF
-          '''
+          """
         }
       }
     }
