@@ -29,7 +29,7 @@ pipeline {
       steps {
         withCredentials([[
           $class: 'AmazonWebServicesCredentialsBinding',
-          credentialsId: "$AWS_CREDENTIALS",
+          credentialsId: AWS_CREDENTIALS,
           accessKeyVariable: 'AWS_ACCESS_KEY_ID',
           secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
         ]]) {
@@ -59,7 +59,7 @@ pipeline {
       steps {
         withCredentials([[
           $class: 'AmazonWebServicesCredentialsBinding',
-          credentialsId: "$AWS_CREDENTIALS",
+          credentialsId: AWS_CREDENTIALS,
           accessKeyVariable: 'AWS_ACCESS_KEY_ID',
           secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
         ]]) {
@@ -108,7 +108,7 @@ pipeline {
       steps {
         withCredentials([[
           $class: 'AmazonWebServicesCredentialsBinding',
-          credentialsId: "$AWS_CREDENTIALS",
+          credentialsId: AWS_CREDENTIALS,
           accessKeyVariable: 'AWS_ACCESS_KEY_ID',
           secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
         ]]) {
@@ -129,7 +129,7 @@ pipeline {
       steps {
         withCredentials([[
           $class: 'AmazonWebServicesCredentialsBinding',
-          credentialsId: "$AWS_CREDENTIALS",
+          credentialsId: AWS_CREDENTIALS,
           accessKeyVariable: 'AWS_ACCESS_KEY_ID',
           secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
         ]]) {
@@ -188,17 +188,19 @@ pipeline {
       steps {
         unstash 'app-jar'
         script {
-          def jarPath  = findFiles(glob: 'target/*.jar')[0].path
-          def jarName  = jarPath.tokenize('/').last()
-          def baseName = jarName.replace('.jar','')
-          env.JAR_PATH = jarPath
-          env.WAR_NAME = "${baseName}.war"
+          // Locate the built JAR
+          def file = findFiles(glob: 'target/*.jar')[0]
+          env.JAR_PATH = file.path
+          env.JAR_NAME = file.name
+          env.WAR_NAME = file.name.replace('.jar', '.war')
         }
         sh """
           rm -rf war_staging ${env.WAR_NAME}
           mkdir -p war_staging/WEB-INF/lib war_staging/WEB-INF/classes
+
           cp ${env.JAR_PATH} war_staging/WEB-INF/lib/
           unzip -q war_staging/WEB-INF/lib/${env.JAR_NAME} -d war_staging/WEB-INF/classes
+
           cd war_staging
           jar cf ../${env.WAR_NAME} .
         """
@@ -211,17 +213,17 @@ pipeline {
       steps {
         unstash 'app-war'
         nexusArtifactUploader(
-          nexusVersion   : 'nexus3',
-          protocol       : 'http',
-          nexusUrl       : env.NEXUS_HOST,
-          credentialsId  : 'nexus-deployer',
-          groupId        : 'org.springframework.samples',
-          version        : '3.1.1',
-          repository     : 'Spring-Clinic',
-          artifacts      : [[
-            artifactId : 'spring-clinic',
-            file       : findFiles(glob: '*.war')[0].path,
-            type       : 'war'
+          nexusVersion  : 'nexus3',
+          protocol      : 'http',
+          nexusUrl      : env.NEXUS_HOST,
+          credentialsId : 'nexus-deployer',
+          groupId       : 'org.springframework.samples',
+          version       : '3.1.1',
+          repository    : 'Spring-Clinic',
+          artifacts     : [[
+            artifactId: 'spring-clinic',
+            file      : findFiles(glob: '*.war')[0].path,
+            type      : 'war'
           ]]
         )
       }
@@ -241,7 +243,7 @@ pipeline {
           sh """
             chmod 600 \$SSH_KEY
             scp -o StrictHostKeyChecking=no -i \$SSH_KEY \\
-                \${WORKSPACE}/${env.WAR_NAME} \$SSH_USER@\$TOMCAT_HOST:/tmp/${env.WAR_NAME}
+              \${WORKSPACE}/${env.WAR_NAME} \$SSH_USER@\$TOMCAT_HOST:/tmp/${env.WAR_NAME}
 
             ssh -o StrictHostKeyChecking=no -i \$SSH_KEY \$SSH_USER@\$TOMCAT_HOST <<EOF
               set -e
