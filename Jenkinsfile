@@ -279,3 +279,4 @@ EOF
       echo '❌ Pipeline failed – check the logs above.'
     }
   }
+}
