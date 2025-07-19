@@ -6,22 +6,22 @@ pipeline {
   }
 
   environment {
-    AWS_REGION        = 'us-east-1'
-    AWS_CREDENTIALS   = 'jenkins-aws-start-stop'
-    NEXUS_INSTANCE_ID = 'i-07e528bbf536acdcd'
-    NEXUS_PORT        = '8081'
+    AWS_REGION         = 'us-east-1'
+    AWS_CREDENTIALS    = 'jenkins-aws-start-stop'
+    NEXUS_INSTANCE_ID  = 'i-07e528bbf536acdcd'
+    NEXUS_PORT         = '8081'
 
-    AMI_ID            = 'ami-050fd9796aa387c0d'
-    INSTANCE_TYPE     = 't2.micro'
-    KEY_NAME          = 'newjenkinskey'
-    SECURITY_GROUP    = 'sg-0ece4b3e66a57dd4d'
-    SUBNET_ID         = 'subnet-0d08241fda0e0aa1f'
+    AMI_ID             = 'ami-050fd9796aa387c0d'
+    INSTANCE_TYPE      = 't2.micro'
+    KEY_NAME           = 'newjenkinskey'
+    SECURITY_GROUP     = 'sg-0ece4b3e66a57dd4d'
+    SUBNET_ID          = 'subnet-0d08241fda0e0aa1f'
 
-    CATALINA_VERSION  = '9.0.82'
-    CATALINA_MAJOR    = '9'
-    CATALINA_TAR      = "apache-tomcat-${CATALINA_VERSION}.tar.gz"
-    CATALINA_DIR      = "apache-tomcat-${CATALINA_VERSION}"
-    CATALINA_URL      = "https://archive.apache.org/dist/tomcat/tomcat-${CATALINA_MAJOR}/v${CATALINA_VERSION}/bin/${CATALINA_TAR}"
+    CATALINA_VERSION   = '9.0.82'
+    CATALINA_MAJOR     = '9'
+    CATALINA_TAR       = "apache-tomcat-${CATALINA_VERSION}.tar.gz"
+    CATALINA_DIR       = "apache-tomcat-${CATALINA_VERSION}"
+    CATALINA_URL       = "https://archive.apache.org/dist/tomcat/tomcat-${CATALINA_MAJOR}/v${CATALINA_VERSION}/bin/${CATALINA_TAR}"
   }
 
   stages {
@@ -83,26 +83,24 @@ pipeline {
 
     stage('Install Tomcat on App EC2') {
       steps {
-        withCredentials([
-          sshUserPrivateKey(
-            credentialsId: 'jenkins-ec2-ssh-key',
-            keyFileVariable: 'SSH_KEY',
-            usernameVariable: 'SSH_USER'
-          )
-        ]) {
+        withCredentials([sshUserPrivateKey(
+          credentialsId: 'jenkins-ec2-ssh-key',
+          keyFileVariable: 'SSH_KEY',
+          usernameVariable: 'SSH_USER'
+        )]) {
           sh """
-            chmod 600 \$SSH_KEY
-            ssh -o StrictHostKeyChecking=no -i \$SSH_KEY \$SSH_USER@${env.PUBLIC_IP} <<EOF
-              sudo yum update -y
-              sudo yum install -y java-1.8.0-openjdk wget tar
-              wget -q $CATALINA_URL
-              tar xzf $CATALINA_TAR
-              sudo mv $CATALINA_DIR /opt/tomcat
-              sudo /opt/tomcat/bin/startup.sh
-            EOF
-          """
+             |chmod 600 \$SSH_KEY
+             |ssh -o StrictHostKeyChecking=no -i \$SSH_KEY \$SSH_USER@${env.PUBLIC_IP} <<EOF
+             |sudo yum update -y
+             |sudo yum install -y java-1.8.0-openjdk wget tar
+             |wget -q \$CATALINA_URL
+             |tar xzf \$CATALINA_TAR
+             |sudo mv \$CATALINA_DIR /opt/tomcat
+             |sudo /opt/tomcat/bin/startup.sh
+             |EOF
+          """.stripMargin()
         }
-        echo "Tomcat $CATALINA_VERSION installed on ${env.PUBLIC_IP}:8080"
+        echo "Tomcat ${env.CATALINA_VERSION} installed on ${env.PUBLIC_IP}:8080"
       }
     }
 
@@ -243,9 +241,9 @@ pipeline {
           sh """
             chmod 600 \$SSH_KEY
             scp -o StrictHostKeyChecking=no -i \$SSH_KEY \\
-              \${WORKSPACE}/${env.WAR_NAME} \$SSH_USER@\$TOMCAT_HOST:/tmp/${env.WAR_NAME}
+                \${WORKSPACE}/${env.WAR_NAME} \$SSH_USER@\$TOMCAT_HOST:/tmp/${env.WAR_NAME}
 
-            ssh -o StrictHostKeyChecking=no -i \$SSH_KEY \$SSH_USER@\$TOMCAT_HOST << 'EOF'
+            ssh -o StrictHostKeyChecking=no -i \$SSH_KEY \$SSH_USER@\$TOMCAT_HOST <<EOF
               set -e
               if ! java -version &>/dev/null; then
                 sudo yum install -y java-1.8.0-openjdk-devel wget tar
@@ -264,12 +262,12 @@ pipeline {
                 sudo /opt/tomcat/bin/shutdown.sh && sleep 5
               fi
               sudo /opt/tomcat/bin/startup.sh
-            EOF
+EOF
           """
         }
       }
     }
-  } // end stages
+  }
 
   post {
     success {
