@@ -92,7 +92,7 @@ pipeline {
         ]) {
           sh """
             chmod 600 \$SSH_KEY
-            ssh -o StrictHostKeyChecking=no -i \$SSH_KEY \$SSH_USER@${env.PUBLIC_IP} << 'EOF'
+            ssh -o StrictHostKeyChecking=no -i \$SSH_KEY \$SSH_USER@${env.PUBLIC_IP} <<EOF
               sudo yum update -y
               sudo yum install -y java-1.8.0-openjdk wget tar
               wget -q $CATALINA_URL
