@@ -280,3 +280,4 @@ EOF
     }
   }
 } // ← this final closing brace was missing in your original file
+}
