@@ -71,7 +71,7 @@ aws ec2 describe-instances \
             echo "Waiting up to 10 minutes for Nexus at http://${NEXUS_HOST}/service/rest/v1/status …"
             for i in {1..20}; do
               STATUS=$(curl -u $NEXUS_USR:$NEXUS_PSW -s -o /dev/null -w "%{http_code}" \
-                       http://$NEXUS_HOST/service/rest/v1/status)
+                       http://$NEXUS_HOST/service/rest/v1/status || echo "000")
               echo "→ HTTP $STATUS"
               if [ "$STATUS" -eq 200 ]; then
                 echo "✓ Nexus is up!"
@@ -98,7 +98,6 @@ aws ec2 describe-instances \
       steps {
         unstash 'app-jar'
         script {
-          // locate your JAR and compute WAR name
           def jarPath  = findFiles(glob: 'target/*.jar')[0].path
           def jarName  = jarPath.tokenize('/').last()
           def baseName = jarName.replace('.jar','')
@@ -110,14 +109,10 @@ aws ec2 describe-instances \
           rm -rf war_staging ${WAR_NAME}
           mkdir -p war_staging/WEB-INF/lib war_staging/WEB-INF/classes
 
-          # copy the JAR into WEB-INF/lib
           cp ${JAR_PATH} war_staging/WEB-INF/lib/
-
-          # unpack classes/resources into WEB-INF/classes
           unzip -q war_staging/WEB-INF/lib/${JAR_NAME} \
                 -d war_staging/WEB-INF/classes
 
-          # assemble the WAR
           cd war_staging
           jar cf ../${WAR_NAME} .
         '''
