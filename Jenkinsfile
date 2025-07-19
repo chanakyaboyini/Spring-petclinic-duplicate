@@ -8,6 +8,8 @@ pipeline {
   environment {
     AWS_REGION        = 'us-east-1'
     AWS_CREDENTIALS   = 'jenkins-aws-start-stop'
+    NEXUS_INSTANCE_ID = 'i-07e528bbf536acdcd'
+    NEXUS_PORT        = '8081'
 
     AMI_ID            = 'ami-050fd9796aa387c0d'
     INSTANCE_TYPE     = 't2.micro'
@@ -79,7 +81,7 @@ pipeline {
       }
     }
 
-    stage('Install Tomcat') {
+    stage('Install Tomcat on App EC2') {
       steps {
         withCredentials([
           sshUserPrivateKey(
@@ -103,32 +105,24 @@ pipeline {
         echo "Tomcat $CATALINA_VERSION installed on ${env.PUBLIC_IP}:8080"
       }
     }
-  }
 
-  post {
-    always {
-      echo "Pipeline complete. Remember to terminate ${env.INSTANCE_ID} when you’re done."
-    }
-  }
-}
-  stages {
     stage('Start Nexus EC2') {
       steps {
         withCredentials([[
           $class: 'AmazonWebServicesCredentialsBinding',
-          credentialsId: env.AWS_CREDENTIALS,
+          credentialsId: "$AWS_CREDENTIALS",
           accessKeyVariable: 'AWS_ACCESS_KEY_ID',
           secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
         ]]) {
-          sh '''
+          sh """
             aws ec2 start-instances \
-              --instance-ids ${NEXUS_INSTANCE_ID} \
-              --region ${AWS_REGION}
+              --instance-ids ${env.NEXUS_INSTANCE_ID} \
+              --region $AWS_REGION
 
             aws ec2 wait instance-running \
-              --instance-ids ${NEXUS_INSTANCE_ID} \
-              --region ${AWS_REGION}
-          '''
+              --instance-ids ${env.NEXUS_INSTANCE_ID} \
+              --region $AWS_REGION
+          """
         }
       }
     }
@@ -137,19 +131,19 @@ pipeline {
       steps {
         withCredentials([[
           $class: 'AmazonWebServicesCredentialsBinding',
-          credentialsId: env.AWS_CREDENTIALS,
+          credentialsId: "$AWS_CREDENTIALS",
           accessKeyVariable: 'AWS_ACCESS_KEY_ID',
           secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
         ]]) {
           script {
             def ip = sh(
-              script: """\
-aws ec2 describe-instances \
-  --instance-ids ${env.NEXUS_INSTANCE_ID} \
-  --region ${env.AWS_REGION} \
-  --query 'Reservations[0].Instances[0].PublicIpAddress' \
-  --output text
-""",
+              script: """
+                aws ec2 describe-instances \
+                  --instance-ids ${env.NEXUS_INSTANCE_ID} \
+                  --region $AWS_REGION \
+                  --query 'Reservations[0].Instances[0].PublicIpAddress' \
+                  --output text
+              """,
               returnStdout: true
             ).trim()
             env.NEXUS_HOST = "${ip}:${env.NEXUS_PORT}"
@@ -166,22 +160,21 @@ aws ec2 describe-instances \
           usernameVariable: 'NEXUS_USR',
           passwordVariable: 'NEXUS_PSW'
         )]) {
-          sh '''
-            echo "Waiting up to 10 minutes for Nexus at http://${NEXUS_HOST}/service/rest/v1/status …"
+          sh """
+            echo "Waiting for Nexus at http://${env.NEXUS_HOST}/service/rest/v1/status"
             for i in {1..20}; do
-              STATUS=$(curl -u $NEXUS_USR:$NEXUS_PSW -s -o /dev/null -w "%{http_code}" \
-                       http://$NEXUS_HOST/service/rest/v1/status || echo "000")
-              echo "→ HTTP $STATUS"
-              if [ "$STATUS" -eq 200 ]; then
+              STATUS=\$(curl -u \$NEXUS_USR:\$NEXUS_PSW -s -o /dev/null -w "%{http_code}" \
+                       http://${env.NEXUS_HOST}/service/rest/v1/status || echo "000")
+              echo "→ HTTP \$STATUS"
+              if [ "\$STATUS" -eq 200 ]; then
                 echo "✓ Nexus is up!"
                 exit 0
               fi
-              echo "…attempt $i not ready, sleeping 30s."
               sleep 30
             done
             echo "✗ Nexus did not respond after 10 minutes."
             exit 1
-          '''
+          """
         }
       }
     }
@@ -201,47 +194,38 @@ aws ec2 describe-instances \
           def jarName  = jarPath.tokenize('/').last()
           def baseName = jarName.replace('.jar','')
           env.JAR_PATH = jarPath
-          env.JAR_NAME = jarName
           env.WAR_NAME = "${baseName}.war"
         }
-        sh '''
-          rm -rf war_staging ${WAR_NAME}
+        sh """
+          rm -rf war_staging ${env.WAR_NAME}
           mkdir -p war_staging/WEB-INF/lib war_staging/WEB-INF/classes
-
-          cp ${JAR_PATH} war_staging/WEB-INF/lib/
-          unzip -q war_staging/WEB-INF/lib/${JAR_NAME} \
-                -d war_staging/WEB-INF/classes
-
+          cp ${env.JAR_PATH} war_staging/WEB-INF/lib/
+          unzip -q war_staging/WEB-INF/lib/${env.JAR_NAME} -d war_staging/WEB-INF/classes
           cd war_staging
-          jar cf ../${WAR_NAME} .
-        '''
-        archiveArtifacts artifacts: "${WAR_NAME}", fingerprint: true
-        stash includes: "${WAR_NAME}", name: 'app-war'
-        echo "Converted ${JAR_NAME} to ${WAR_NAME}"
+          jar cf ../${env.WAR_NAME} .
+        """
+        archiveArtifacts artifacts: "${env.WAR_NAME}", fingerprint: true
+        stash includes: "${env.WAR_NAME}", name: 'app-war'
       }
     }
 
     stage('Deploy to Nexus') {
       steps {
         unstash 'app-war'
-        script {
-          def warPath = findFiles(glob: '*.war')[0].path
-          nexusArtifactUploader(
-            nexusVersion       : 'nexus3',
-            protocol           : 'http',
-            nexusUrl           : env.NEXUS_HOST,
-            credentialsId      : 'nexus-deployer',
-            groupId            : 'org.springframework.samples',
-            version            : '3.1.1',
-            repository         : 'Spring-Clinic',
-            artifacts          : [[
-              artifactId : 'spring-clinic',
-              classifier : '',
-              file       : warPath,
-              type       : 'war'
-            ]]
-          )
-        }
+        nexusArtifactUploader(
+          nexusVersion   : 'nexus3',
+          protocol       : 'http',
+          nexusUrl       : env.NEXUS_HOST,
+          credentialsId  : 'nexus-deployer',
+          groupId        : 'org.springframework.samples',
+          version        : '3.1.1',
+          repository     : 'Spring-Clinic',
+          artifacts      : [[
+            artifactId : 'spring-clinic',
+            file       : findFiles(glob: '*.war')[0].path,
+            type       : 'war'
+          ]]
+        )
       }
     }
 
@@ -254,56 +238,45 @@ aws ec2 describe-instances \
           keyFileVariable: 'SSH_KEY'
         )]) {
           script {
-            // strip off the “:8081” so we only have the IP
             env.TOMCAT_HOST = env.NEXUS_HOST.split(':')[0]
           }
-
           sh """
             chmod 600 \$SSH_KEY
-
-            # copy the WAR with its real name
             scp -o StrictHostKeyChecking=no -i \$SSH_KEY \\
               \${WORKSPACE}/${env.WAR_NAME} \$SSH_USER@\$TOMCAT_HOST:/tmp/${env.WAR_NAME}
 
-            # remote install & deploy
             ssh -o StrictHostKeyChecking=no -i \$SSH_KEY \$SSH_USER@\$TOMCAT_HOST << 'EOF'
               set -e
-
-              # 1) Java
               if ! java -version &>/dev/null; then
                 sudo yum install -y java-1.8.0-openjdk-devel wget tar
               fi
-
-              # 2) Tomcat
               if [ ! -d /opt/tomcat ]; then
-                TOMCAT_VER=9.0.82
-                wget -q https://archive.apache.org/dist/tomcat/tomcat-9/v\$TOMCAT_VER/bin/apache-tomcat-\$TOMCAT_VER.tar.gz \\
-                  -O /tmp/tomcat.tar.gz
+                wget -q $CATALINA_URL -O /tmp/tomcat.tar.gz
                 sudo mkdir -p /opt
                 sudo tar xzf /tmp/tomcat.tar.gz -C /opt
-                sudo ln -s /opt/apache-tomcat-\$TOMCAT_VER /opt/tomcat
+                sudo ln -s /opt/${CATALINA_DIR} /opt/tomcat
                 sudo useradd -r -s /sbin/nologin tomcat || true
-                sudo chown -R tomcat:tomcat /opt/apache-tomcat-\$TOMCAT_VER
+                sudo chown -R tomcat:tomcat /opt/${CATALINA_DIR}
               fi
-
-              # 3) Deploy WAR
               sudo cp /tmp/${env.WAR_NAME} /opt/tomcat/webapps/${env.WAR_NAME}
               sudo chown tomcat:tomcat /opt/tomcat/webapps/${env.WAR_NAME}
-
-              # 4) Restart Tomcat
               if pgrep -f '/opt/tomcat/bin/catalina.sh'; then
                 sudo /opt/tomcat/bin/shutdown.sh && sleep 5
               fi
               sudo /opt/tomcat/bin/startup.sh
-EOF
+            EOF
           """
         }
       }
     }
-  }
+  } // end stages
 
   post {
-    success { echo '✅ Pipeline completed and WAR deployed to Tomcat.' }
-    failure { echo '❌ Pipeline failed – check the logs above.' }
+    success {
+      echo '✅ Pipeline completed and WAR deployed to Tomcat.'
+    }
+    failure {
+      echo '❌ Pipeline failed – check the logs above.'
+    }
   }
 }
