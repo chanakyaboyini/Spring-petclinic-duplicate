@@ -76,8 +76,8 @@ pipeline {
                 echo "✓ Nexus is up!"
                 exit 0
               fi
-              echo "…not ready yet (attempt $i). Retrying in 10s."
-              sleep 10
+              echo "…not ready yet (attempt $i). Retrying in 30s."
+              sleep 30
             done
             echo "✗ Nexus did not respond in time."
             exit 1
