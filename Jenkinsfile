@@ -146,10 +146,48 @@ aws ec2 describe-instances \
         }
       }
     }
+
+    stage('Install Tomcat & Deploy WAR') {
+      steps {
+        unstash 'app-war'
+        withCredentials([sshUserPrivateKey(
+          credentialsId: 'jenkins-ec2-ssh-key',
+          usernameVariable: 'SSH_USER',
+          keyFileVariable: 'SSH_KEY'
+        )]) {
+          sh '''
+            chmod 600 $SSH_KEY
+            HOST=$(echo $NEXUS_HOST | cut -d: -f1)
+
+            # copy WAR to remote
+            scp -o StrictHostKeyChecking=no -i $SSH_KEY ${WAR_NAME} $SSH_USER@$HOST:/tmp/
+
+            # install & deploy on Tomcat
+            ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$HOST << 'EOF'
+              sudo yum update -y
+              sudo yum install -y java-1.8.0-openjdk wget tar
+
+              if [ ! -d /opt/tomcat ]; then
+                TOMCAT_VER=9.0.82
+                wget -q https://archive.apache.org/dist/tomcat/tomcat-9/v$TOMCAT_VER/bin/apache-tomcat-$TOMCAT_VER.tar.gz -O /tmp/tomcat.tar.gz
+                sudo tar xzf /tmp/tomcat.tar.gz -C /opt/
+                sudo ln -s /opt/apache-tomcat-$TOMCAT_VER /opt/tomcat
+                sudo useradd tomcat || true
+                sudo chown -R tomcat:tomcat /opt/tomcat
+              fi
+
+              sudo cp /tmp/${WAR_NAME} /opt/tomcat/webapps/
+              sudo /opt/tomcat/bin/shutdown.sh || true
+              sudo /opt/tomcat/bin/startup.sh
+EOF
+          '''
+        }
+      }
+    }
   }
 
   post {
-    success { echo '✅ Pipeline completed and WAR deployed.' }
+    success { echo '✅ Pipeline completed, WAR deployed to Tomcat.' }
     failure { echo '❌ Pipeline failed – check the logs above.' }
   }
-}
+} 
