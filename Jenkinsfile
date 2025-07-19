@@ -94,11 +94,44 @@ aws ec2 describe-instances \
       }
     }
 
-    stage('Deploy to Nexus') {
+    stage('Convert JAR to WAR') {
       steps {
         unstash 'app-jar'
         script {
-          def jarPath = findFiles(glob: 'target/*.jar')[0].path
+          // locate your JAR and compute WAR name
+          def jarPath  = findFiles(glob: 'target/*.jar')[0].path
+          def jarName  = jarPath.tokenize('/').last()
+          def baseName = jarName.replace('.jar','')
+          env.JAR_PATH = jarPath
+          env.JAR_NAME = jarName
+          env.WAR_NAME = "${baseName}.war"
+        }
+        sh '''
+          rm -rf war_staging ${WAR_NAME}
+          mkdir -p war_staging/WEB-INF/lib war_staging/WEB-INF/classes
+
+          # copy the JAR into WEB-INF/lib
+          cp ${JAR_PATH} war_staging/WEB-INF/lib/
+
+          # unpack classes/resources into WEB-INF/classes
+          unzip -q war_staging/WEB-INF/lib/${JAR_NAME} \
+                -d war_staging/WEB-INF/classes
+
+          # assemble the WAR
+          cd war_staging
+          jar cf ../${WAR_NAME} .
+        '''
+        archiveArtifacts artifacts: "${WAR_NAME}", fingerprint: true
+        stash includes: "${WAR_NAME}", name: 'app-war'
+        echo "Converted ${JAR_NAME} to ${WAR_NAME}"
+      }
+    }
+
+    stage('Deploy to Nexus') {
+      steps {
+        unstash 'app-war'
+        script {
+          def warPath = findFiles(glob: '*.war')[0].path
           nexusArtifactUploader(
             nexusVersion       : 'nexus3',
             protocol           : 'http',
@@ -111,8 +144,8 @@ aws ec2 describe-instances \
             artifacts          : [[
               artifactId : 'spring-clinic',
               classifier : '',
-              file       : jarPath,
-              type       : 'jar'
+              file       : warPath,
+              type       : 'war'
             ]]
           )
         }
@@ -121,7 +154,7 @@ aws ec2 describe-instances \
   }
 
   post {
-    success { echo '✅ Pipeline completed and artifact deployed.' }
+    success { echo '✅ Pipeline completed and WAR deployed.' }
     failure { echo '❌ Pipeline failed – check the logs above.' }
   }
 }
