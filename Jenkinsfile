@@ -6,12 +6,8 @@ pipeline {
   }
 
   environment {
-    // your Nexus deploy credentials
-    NEXUS_CRED         = credentials('nexus-deployer')
-    // AWS settings
     AWS_REGION         = 'us-east-1'
-    AWS_CREDENTIALS    = 'jenkins-aws-start-stop'               // AWS creds ID in Jenkins
-    // Nexus EC2 details
+    AWS_CREDENTIALS    = 'jenkins-aws-start-stop'
     NEXUS_INSTANCE_ID  = 'i-07e528bbf536acdcd'
     NEXUS_PORT         = '8081'
   }
@@ -21,7 +17,9 @@ pipeline {
       steps {
         withCredentials([[
           $class: 'AmazonWebServicesCredentialsBinding',
-          credentialsId: AWS_CREDENTIALS
+          credentialsId: env.AWS_CREDENTIALS,
+          accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+          secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
         ]]) {
           sh '''
             aws ec2 start-instances \
@@ -40,17 +38,19 @@ pipeline {
       steps {
         withCredentials([[
           $class: 'AmazonWebServicesCredentialsBinding',
-          credentialsId: AWS_CREDENTIALS
+          credentialsId: env.AWS_CREDENTIALS,
+          accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+          secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
         ]]) {
           script {
             def ip = sh(
-              script: """
-                aws ec2 describe-instances \
-                  --instance-ids ${env.NEXUS_INSTANCE_ID} \
-                  --region ${env.AWS_REGION} \
-                  --query 'Reservations[0].Instances[0].PublicIpAddress' \
-                  --output text
-              """,
+              script: """\
+aws ec2 describe-instances \
+  --instance-ids ${env.NEXUS_INSTANCE_ID} \
+  --region ${env.AWS_REGION} \
+  --query 'Reservations[0].Instances[0].PublicIpAddress' \
+  --output text
+""",
               returnStdout: true
             ).trim()
             env.NEXUS_HOST = "${ip}:${env.NEXUS_PORT}"
@@ -62,26 +62,24 @@ pipeline {
 
     stage('Wait for Nexus to Be Ready') {
       steps {
-        // reuse same Nexus credentials to hit the status endpoint
         withCredentials([usernamePassword(
           credentialsId: 'nexus-deployer',
           usernameVariable: 'NEXUS_USR',
           passwordVariable: 'NEXUS_PSW'
         )]) {
-          sh '''
-            echo "Waiting up to 5 minutes for Nexus to respond on port ${NEXUS_PORT}…"
-            for i in {1..30}; do
-              # -s = silent, -f = fail on HTTP>=400
-              if curl -u $NEXUS_USR:$NEXUS_PSW -sf http://$NEXUS_HOST/service/rest/v1/status; then
-                echo "✓ Nexus is up!"
-                exit 0
-              fi
-              echo "…not ready yet (attempt $i). Retrying in 30s."
-              sleep 30
-            done
-            echo "✗ Nexus did not respond in time."
-            exit 1
-          '''
+          script {
+            timeout(time: 10, unit: 'MINUTES') {
+              waitUntil {
+                echo "Checking Nexus at http://${env.NEXUS_HOST}/service/rest/v1/status"
+                def status = sh(
+                  script: "curl -u ${NEXUS_USR}:${NEXUS_PSW} -s -o /dev/null -w '%{http_code}' http://${env.NEXUS_HOST}/service/rest/v1/status",
+                  returnStdout: true
+                ).trim()
+                echo "→ HTTP ${status}"
+                return (status == '200')
+              }
+            }
+          }
         }
       }
     }
