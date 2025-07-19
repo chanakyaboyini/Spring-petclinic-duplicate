@@ -155,29 +155,43 @@ aws ec2 describe-instances \
           usernameVariable: 'SSH_USER',
           keyFileVariable: 'SSH_KEY'
         )]) {
+          script {
+            env.TOMCAT_HOST = env.NEXUS_HOST.split(':')[0]
+          }
           sh '''
             chmod 600 $SSH_KEY
-            HOST=$(echo $NEXUS_HOST | cut -d: -f1)
 
-            # copy WAR to remote
-            scp -o StrictHostKeyChecking=no -i $SSH_KEY ${WAR_NAME} $SSH_USER@$HOST:/tmp/
+            scp -o StrictHostKeyChecking=no -i $SSH_KEY \
+              ${WORKSPACE}/${WAR_NAME} $SSH_USER@$TOMCAT_HOST:/tmp/${WAR_NAME}
 
-            # install & deploy on Tomcat
-            ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$HOST << 'EOF'
-              sudo yum update -y
-              sudo yum install -y java-1.8.0-openjdk wget tar
+            ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$TOMCAT_HOST << 'EOF'
+              set -e
 
-              if [ ! -d /opt/tomcat ]; then
-                TOMCAT_VER=9.0.82
-                wget -q https://archive.apache.org/dist/tomcat/tomcat-9/v$TOMCAT_VER/bin/apache-tomcat-$TOMCAT_VER.tar.gz -O /tmp/tomcat.tar.gz
-                sudo tar xzf /tmp/tomcat.tar.gz -C /opt/
-                sudo ln -s /opt/apache-tomcat-$TOMCAT_VER /opt/tomcat
-                sudo useradd tomcat || true
-                sudo chown -R tomcat:tomcat /opt/tomcat
+              # install Java if missing
+              if ! java -version &>/dev/null; then
+                sudo yum install -y java-1.8.0-openjdk-devel wget tar
               fi
 
+              # install Tomcat if not present
+              if [ ! -d /opt/tomcat ]; then
+                TOMCAT_VER=9.0.82
+                wget -q https://archive.apache.org/dist/tomcat/tomcat-9/v\$TOMCAT_VER/bin/apache-tomcat-\$TOMCAT_VER.tar.gz \
+                  -O /tmp/tomcat.tar.gz
+                sudo mkdir -p /opt
+                sudo tar xzf /tmp/tomcat.tar.gz -C /opt
+                sudo ln -s /opt/apache-tomcat-\$TOMCAT_VER /opt/tomcat
+                sudo useradd -r -s /sbin/nologin tomcat || true
+                sudo chown -R tomcat:tomcat /opt/apache-tomcat-\$TOMCAT_VER
+              fi
+
+              # deploy WAR and restart Tomcat
               sudo cp /tmp/${WAR_NAME} /opt/tomcat/webapps/
-              sudo /opt/tomcat/bin/shutdown.sh || true
+              sudo chown tomcat:tomcat /opt/tomcat/webapps/${WAR_NAME}
+
+              if pgrep -f '/opt/tomcat/bin/catalina.sh'; then
+                sudo /opt/tomcat/bin/shutdown.sh
+                sleep 5
+              fi
               sudo /opt/tomcat/bin/startup.sh
 EOF
           '''
@@ -187,7 +201,7 @@ EOF
   }
 
   post {
-    success { echo '✅ Pipeline completed, WAR deployed to Tomcat.' }
+    success { echo '✅ Pipeline completed and WAR deployed to Tomcat.' }
     failure { echo '❌ Pipeline failed – check the logs above.' }
   }
-} 
+}
