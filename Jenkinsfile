@@ -81,7 +81,7 @@ pipeline {
       }
     }
 
-    stage('Install Tomcat on App EC2') {
+    /*stage('Install Tomcat on App EC2') {
       steps {
         withCredentials([sshUserPrivateKey(
           credentialsId: 'jenkins-ec2-ssh-key',
@@ -102,7 +102,7 @@ pipeline {
         }
         echo "Tomcat ${env.CATALINA_VERSION} installed on ${env.PUBLIC_IP}:8080"
       }
-    }
+    }*/
 
     stage('Start Nexus EC2') {
       steps {
@@ -229,7 +229,7 @@ pipeline {
       }
     }
 
-    stage('Install Tomcat & Deploy WAR') {
+    /*stage('Install Tomcat & Deploy WAR') {
       steps {
         unstash 'app-war'
         withCredentials([sshUserPrivateKey(
@@ -269,7 +269,7 @@ EOF
         }
       }
     }
-  }
+  }*/
 
   post {
     success {
