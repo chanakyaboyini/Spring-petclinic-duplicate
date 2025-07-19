@@ -67,19 +67,22 @@ aws ec2 describe-instances \
           usernameVariable: 'NEXUS_USR',
           passwordVariable: 'NEXUS_PSW'
         )]) {
-          script {
-            timeout(time: 10, unit: 'MINUTES') {
-              waitUntil {
-                echo "Checking Nexus at http://${env.NEXUS_HOST}/service/rest/v1/status"
-                def status = sh(
-                  script: "curl -u ${NEXUS_USR}:${NEXUS_PSW} -s -o /dev/null -w '%{http_code}' http://${env.NEXUS_HOST}/service/rest/v1/status",
-                  returnStdout: true
-                ).trim()
-                echo "→ HTTP ${status}"
-                return (status == '200')
-              }
-            }
-          }
+          sh '''
+            echo "Waiting up to 10 minutes for Nexus at http://${NEXUS_HOST}/service/rest/v1/status …"
+            for i in {1..20}; do
+              STATUS=$(curl -u $NEXUS_USR:$NEXUS_PSW -s -o /dev/null -w "%{http_code}" \
+                       http://$NEXUS_HOST/service/rest/v1/status)
+              echo "→ HTTP $STATUS"
+              if [ "$STATUS" -eq 200 ]; then
+                echo "✓ Nexus is up!"
+                exit 0
+              fi
+              echo "…attempt $i not ready, sleeping 30s."
+              sleep 30
+            done
+            echo "✗ Nexus did not respond after 10 minutes."
+            exit 1
+          '''
         }
       }
     }
