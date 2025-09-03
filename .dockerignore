@@ -1,4 +1,5 @@
-target/*.log
-target/*.tmp
+target/
 .git
 .gitignore
+Dockerfile
+*.md
