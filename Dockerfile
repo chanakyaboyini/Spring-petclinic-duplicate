@@ -10,15 +10,15 @@ RUN mvn dependency:go-offline -B
 COPY src/ ./src
 RUN mvn clean package -DskipTests -B
 
-# Stage 2: runtime on a slim OpenJDK 17 JDK (tracks latest 17.x releases)
-FROM openjdk:17-jdk-slim AS runtime
+# Stage 2: runtime on Eclipse Temurin JRE 17 (includes cgroup-v2 fix)
+FROM eclipse-temurin:17-jre-jammy AS runtime
 WORKDIR /app
 
-# Copy the fat JAR from the builder stage
+# Copy the packaged JAR from builder stage
 COPY --from=builder /app/target/*.jar app.jar
 
 # Expose Spring Boot’s default port
 EXPOSE 8080
 
-# Launch the app
+# Launch the application
 ENTRYPOINT ["java", "-jar", "app.jar"]
